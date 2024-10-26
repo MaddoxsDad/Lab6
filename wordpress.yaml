@@ -2,9 +2,30 @@
 - hosts: localhost
   become: yes  # Run as root
   vars:
-    ansible_python_interpreter: /usr/bin/python2
+    ansible_python_interpreter: /usr/bin/python3
+    mysql_root_password: 'your_root_password'  # Set this to your desired MySQL root password
+
+  # Preface: I just incorporated the required Ansible downloads into the playbook itself
+  # Because I did this entire lab on the wrong Linux OS instance, in case you're like "WTF, why is he installing it here?!" 😅
+  # P.S. This lab hurt my soul... or maybe my brain... or both. My fault for not recognizing the DNF warnings.
+  # Ansible kept trying to remind me with errors like "No such file or directory" for 'dnf config-manager --set-enabled crb'
+  # and constant nagging about using `dnf` instead of `yum`. But did I listen? Nooo. So, here we are!
+  # FYI: I DO remember you saying how students struggled with the scripts for this EXACT REASON. I just didn't think it'd be me.
 
   tasks:
+    # 0. Installs Ansible Core if not already installed (necessary to run the playbook)
+    - name: Install Ansible Core
+      dnf:
+        name: ansible-core
+        state: present
+      tags: ansible_install
+
+    # 0.1 Installs the Ansible collection for MySQL support - required for managing MySQL in the playbook
+    - name: Install Ansible collection for MySQL
+      ansible.builtin.command: ansible-galaxy collection install community.mysql
+      tags: ansible_collection_install
+      ignore_errors: yes  # Skips if already installed
+
     # 1. Installs epel-release to enable the EPEL repository
     - name: Install epel-release to enable EPEL repository
       package:
@@ -67,7 +88,24 @@
         name: httpd
         state: started
         enabled: yes
+     - name: Ensure /auth_pam_tool_dir exists
+      file:
+        path: /auth_pam_tool_dir
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
 
+    #9.1 Task to remove existing MySQL socket file if it exists
+    - name: Remove existing MySQL socket file if it exists
+      file:
+        path: /var/lib/mysql/mysql.sock
+        state: absent
+
+    #9.FML Task to run mysql_upgrade if mysql.user table exists
+    - name: Upgrade MySQL tables if mysql.user exists
+      command: mysql_upgrade
+      when: "'mysql.user' in ansible_facts['mysql_databases']"
     # 10. Starts and enables MariaDB (database server) to run at boot
     - name: Start and enable MariaDB (MySQL compatible)
       service:
@@ -75,20 +113,46 @@
         state: started
         enabled: yes
 
-    # 11. Downloads the latest WordPress archive
+    # 11. Sets the MySQL root password
+    - name: Set MySQL root password
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/lib/mysql/mysql.sock
+        state: present
+
+    # 12. Creates MySQL database for WordPress
+    - name: Create MySQL database for WordPress
+      community.mysql.mysql_db:
+        name: wordpress_db
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    # 13. Creates MySQL user for WordPress and grants all privileges on the WordPress database
+    - name: Create MySQL user for WordPress
+      community.mysql.mysql_user:
+        name: wordpress_user
+        password: "securepassword"
+        priv: 'wordpress_db.*:ALL'
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    # 14. Downloads the latest WordPress archive
     - name: Download WordPress
       get_url:
         url: https://wordpress.org/latest.tar.gz
         dest: /tmp/wordpress.tar.gz
 
-    # 12. Extracts WordPress to the web root directory
+    # 15. Extracts WordPress to the web root directory
     - name: Extract WordPress to /var/www/html/
       unarchive:
         src: /tmp/wordpress.tar.gz
         dest: /var/www/html/
         remote_src: yes
 
-    # 13. Sets ownership of WordPress files to Apache user for web access
+    # 16. Sets ownership of WordPress files to Apache user for web access
     - name: Set ownership for WordPress files
       file:
         path: /var/www/html/wordpress
@@ -97,41 +161,27 @@
         group: apache
         mode: '0755'
 
-    # 14. Creates MySQL database for WordPress
-    - name: Create MySQL database for WordPress
-      community.mysql.mysql_db:
-        name: wordpress_db
-        state: present
-
-    # 15. Creates MySQL user for WordPress and grants all privileges on the WordPress database
-    - name: Create MySQL user for WordPress
-      community.mysql.mysql_user:
-        name: wordpress_user
-        password: "securepassword"
-        priv: 'wordpress_db.*:ALL'
-        state: present
-
-    # 16. Copies the sample wp-config.php file as wp-config.php
+    # 17. Copies the sample wp-config.php file as wp-config.php
     - name: Copy sample wp-config.php to wp-config.php
       copy:
         src: /var/www/html/wordpress/wp-config-sample.php
         dest: /var/www/html/wordpress/wp-config.php
 
-    # 17. Sets the database name in wp-config.php
+    # 18. Sets the database name in wp-config.php
     - name: Set database name in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'database_name_here'
         line: "define('DB_NAME', 'wordpress_db');"
 
-    # 18. Sets the database user in wp-config.php
+    # 19. Sets the database user in wp-config.php
     - name: Set database user in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'username_here'
         line: "define('DB_USER', 'wordpress_user');"
 
-    # 19. Sets the database password in wp-config.php
+    # 20. Sets the database password in wp-config.php
     - name: Set database password in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
