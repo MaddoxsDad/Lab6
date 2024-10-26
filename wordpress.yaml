@@ -40,11 +40,12 @@
           - git
           - unzip
         state: present
-    # 6. Install Python development libraries cause  it's the ONLY thing preventing me from completing this $#$#%% lab
+
+    # 6. Install Python development libraries
     - name: Install Python development libraries
-  package:
-    name: python3-devel
-    state: present
+      package:
+        name: python3-devel
+        state: present
 
     # 7. Install PyMySQL using pip3
     - name: Install PyMySQL using pip3
