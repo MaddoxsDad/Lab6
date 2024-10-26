@@ -40,7 +40,8 @@
           - git
           - unzip
         state: present
-    # 6.- name: Install Python development libraries
+    # 6. Install Python development libraries cause  it's the ONLY thing preventing me from completing this $#$#%% lab
+    - name: Install Python development libraries
   package:
     name: python3-devel
     state: present
