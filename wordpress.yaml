@@ -3,53 +3,38 @@
   become: yes  # Run as root
   vars:
     ansible_python_interpreter: /usr/bin/python3
-    mysql_root_password: 'your_root_password'  # Set this to your desired MySQL root password
-
-  # Preface: I just incorporated the required Ansible downloads into the playbook itself
-  # Because I did this entire lab on the wrong Linux OS instance, in case you're like "WTF, why is he installing it here?!" 😅
-  # P.S. This lab hurt my soul... or maybe my brain... or both. My fault for not recognizing the DNF warnings.
-  # Ansible kept trying to remind me with errors like "No such file or directory" for 'dnf config-manager --set-enabled crb'
-  # and constant nagging about using `dnf` instead of `yum`. But did I listen? Nooo. So, here we are!
-  # FYI: I DO remember you saying how students struggled with the scripts for this EXACT REASON. I just didn't think it'd be me.
-
+    mysql_root_password: 'securepassword'
+# Preface: I just incorporated the required Ansible downloads into the playbook itself
+# Because I did this entire lab on the wrong Linux OS instance, in case you're like "WTF, why is he installing it here?!"
+# P.S. This lab hurt my soul... or maybe my brain... or both. My fault for not recognizing the DNF warnings.
+# Ansible kept trying to remind me with errors like "No such file or directory" for 'dnf config-manager --set-enabled crb'
+# and constant nagging about using `dnf` instead of `yum`. But did I listen? Nooo. So, here we are!
+# FYI: I DO remember you saying how students struggled with the scripts for this EXACT REASON. I just didn't think it'd be me.
   tasks:
-    # 0. Installs Ansible Core if not already installed (necessary to run the playbook)
-    - name: Install Ansible Core
-      dnf:
-        name: ansible-core
-        state: present
-      tags: ansible_install
-
-    # 0.1 Installs the Ansible collection for MySQL support - required for managing MySQL in the playbook
-    - name: Install Ansible collection for MySQL
-      ansible.builtin.command: ansible-galaxy collection install community.mysql
-      tags: ansible_collection_install
-      ignore_errors: yes  # Skips if already installed
-
-    # 1. Installs epel-release to enable the EPEL repository
+    # 1. Installs epel-release to enable the EPEL repository. I mean, we *need* this for basic packages.
     - name: Install epel-release to enable EPEL repository
       package:
         name: epel-release
         state: present
 
-    # 2. Enables Code Ready Builder repository (CRB) - needed for additional packages
+    # 2. Enables Code Ready Builder repository (CRB) - because apparently the basics are never enough.
     - name: Enable Code Ready Builder repository (CRB)
       command: dnf config-manager --set-enabled crb
       when: ansible_os_family == "RedHat"  # AlmaLinux is RedHat-based
 
-    # 3. Installs development tools (like GCC) needed for compiling mysqlclient
+    # 3. Installs development tools (GCC, etc.) - because installing MySQL isn't challenging enough without needing compilers.
     - name: Install development tools (GCC and other tools)
       dnf:
         name: "@Development tools"
         state: present
 
-    # 4. Installs MySQL development libraries required for mysqlclient
+    # 4. Installs MySQL development libraries required for mysqlclient - more setup just to let MariaDB do its thing.
     - name: Install MySQL development library
       dnf:
         name: mariadb-devel
         state: present
 
-    # 5. Installs Apache, MariaDB, PHP, and other necessary packages
+    # 5. Installs Apache, MariaDB, PHP, and other required packages - the straightforward part of this setup.
     - name: Install Apache, MariaDB, PHP, and other required packages
       dnf:
         name:
@@ -64,64 +49,62 @@
           - unzip
         state: present
 
-    # 6. Installs Python development libraries (for building Python modules)
+    # 6. Installs Python development libraries (for building Python modules) - because yes, we need more libraries.
     - name: Install Python development libraries
       dnf:
         name: python3-devel
         state: present
 
-    # 7. Installs PyMySQL via pip3 (Python 3 package manager) - required for MySQL connection
+    # 7. Installs PyMySQL using pip3 - needed for MySQL communication but of course can’t just be native.
     - name: Install PyMySQL using pip3
       ansible.builtin.pip:
         name: PyMySQL
         executable: /usr/bin/pip3
 
-    # 8. Installs mysqlclient via pip3 (required for MySQL connection with Python 3)
+    # 8. Installs mysqlclient using pip3 - because we can't just connect to MySQL easily, right?
     - name: Install mysqlclient via pip3
       ansible.builtin.pip:
         name: mysqlclient
         executable: /usr/bin/pip3
 
-    # 9. Starts and enables Apache (web server) to run at boot
+    # 9. Initializes MariaDB data directory, because MariaDB refuses to let us off easy without prep.
+    - name: Initialize MariaDB data directory
+      command: mysql_install_db --user=mysql --basedir=/usr --datadir=/var/lib/mysql
+      args:
+        creates: /var/lib/mysql/mysql
+      # Because apparently, MariaDB *demands* special treatment if files already exist.
+
+    # 10. Starts and enables Apache (web server) to run at boot. Easy part - thank you, Apache.
     - name: Start and enable Apache (httpd)
       service:
         name: httpd
         state: started
         enabled: yes
-     - name: Ensure /auth_pam_tool_dir exists
-      file:
-        path: /auth_pam_tool_dir
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
 
-    #9.1 Task to remove existing MySQL socket file if it exists
-    - name: Remove existing MySQL socket file if it exists
-      file:
-        path: /var/lib/mysql/mysql.sock
-        state: absent
-
-    #9.FML Task to run mysql_upgrade if mysql.user table exists
-    - name: Upgrade MySQL tables if mysql.user exists
-      command: mysql_upgrade
-      when: "'mysql.user' in ansible_facts['mysql_databases']"
-    # 10. Starts and enables MariaDB (database server) to run at boot
+    # 11. Starts and enables MariaDB - assuming we have somehow configured everything it wants.
     - name: Start and enable MariaDB (MySQL compatible)
       service:
         name: mariadb
         state: started
         enabled: yes
 
-    # 11. Sets the MySQL root password
-    - name: Set MySQL root password
-      mysql_user:
-        name: root
-        password: "{{ mysql_root_password }}"
-        login_unix_socket: /var/lib/mysql/mysql.sock
-        state: present
+    # 12. Secure MySQL installation - here’s where MariaDB makes me manually reassure it about everything.
+    - name: Secure MySQL installation and set root password
+      expect:
+        command: mysql_secure_installation
+        responses:
+          "Enter current password for root (enter for none):": ""
+          "Set root password?": "Y"
+          "New password:": "{{ mysql_root_password }}"
+          "Re-enter new password:": "{{ mysql_root_password }}"
+          "Remove anonymous users?": "Y"
+          "Disallow root login remotely?": "Y"
+          "Remove test database and access to it?": "Y"
+          "Reload privilege tables now?": "Y"
+      when: ansible_os_family == "RedHat"  # AlmaLinux is RedHat-based
+      # Because MySQL insists on self-verification, just in case we forgot we were setting it up.
 
-    # 12. Creates MySQL database for WordPress
+    # 13. Creates MySQL database for WordPress - at this point, this better work.
     - name: Create MySQL database for WordPress
       community.mysql.mysql_db:
         name: wordpress_db
@@ -129,7 +112,7 @@
         login_user: root
         login_password: "{{ mysql_root_password }}"
 
-    # 13. Creates MySQL user for WordPress and grants all privileges on the WordPress database
+    # 14. Creates MySQL user for WordPress and grants all privileges - yes, with another privilege check.
     - name: Create MySQL user for WordPress
       community.mysql.mysql_user:
         name: wordpress_user
@@ -139,20 +122,20 @@
         login_user: root
         login_password: "{{ mysql_root_password }}"
 
-    # 14. Downloads the latest WordPress archive
+    # 15. Downloads the latest WordPress archive - as a nice break from configuring MariaDB.
     - name: Download WordPress
       get_url:
         url: https://wordpress.org/latest.tar.gz
         dest: /tmp/wordpress.tar.gz
 
-    # 15. Extracts WordPress to the web root directory
+    # 16. Extracts WordPress to the web root directory - one more thing MariaDB doesn’t control.
     - name: Extract WordPress to /var/www/html/
       unarchive:
         src: /tmp/wordpress.tar.gz
         dest: /var/www/html/
         remote_src: yes
 
-    # 16. Sets ownership of WordPress files to Apache user for web access
+    # 17. Sets ownership of WordPress files to Apache user - surprisingly simple, unlike the database.
     - name: Set ownership for WordPress files
       file:
         path: /var/www/html/wordpress
@@ -161,27 +144,27 @@
         group: apache
         mode: '0755'
 
-    # 17. Copies the sample wp-config.php file as wp-config.php
+    # 18. Copies the sample wp-config.php file as wp-config.php - because WordPress *does* come prepared.
     - name: Copy sample wp-config.php to wp-config.php
       copy:
         src: /var/www/html/wordpress/wp-config-sample.php
         dest: /var/www/html/wordpress/wp-config.php
 
-    # 18. Sets the database name in wp-config.php
+    # 19. Sets the database name in wp-config.php - WordPress trusts us to do this right.
     - name: Set database name in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'database_name_here'
         line: "define('DB_NAME', 'wordpress_db');"
 
-    # 19. Sets the database user in wp-config.php
+    # 20. Sets the database user in wp-config.php - one final setup, because MariaDB demanded it.
     - name: Set database user in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'username_here'
         line: "define('DB_USER', 'wordpress_user');"
 
-    # 20. Sets the database password in wp-config.php
+    # 21. Sets the database password in wp-config.php - if MariaDB isn’t satisfied with this, I’m done.
     - name: Set database password in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
