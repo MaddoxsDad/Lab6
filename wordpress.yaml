@@ -2,7 +2,7 @@
 - hosts: localhost
   become: yes  # Run as root
   vars:
-    ansible_python_interpreter: /usr/bin/python3
+    ansible_python_interpreter: /usr/bin/python2
 
   tasks:
     # 1. Installs epel-release to enable the EPEL repository
