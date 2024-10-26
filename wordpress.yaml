@@ -1,8 +1,6 @@
 ---
 - hosts: localhost
   become: yes  # Run as root
-  - hosts: localhost
-  become: yes
   vars:
     ansible_python_interpreter: /usr/bin/python3
 
