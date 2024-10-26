@@ -2,35 +2,31 @@
 - hosts: localhost
   become: yes  # Run as root
 
-  pre_tasks:
-    # Ensure the required collections are installed
-    - name: Install required Ansible collections
-      ansible.builtin.command:
-        cmd: ansible-galaxy collection install community.mysql
-      args:
-        warn: false
-      # Ignore errors if the collection is already installed
-      ignore_errors: true
-
   tasks:
-    # 1. Enables EPEL repo
+    # 1. Enables EPEL repository
     - name: Install epel-release to enable EPEL repository
       package:
         name: epel-release
         state: present
 
-    # 2. CRB repository for AlmaLinux
+    # 2. Enable Code Ready Builder repository (CRB)
     - name: Enable Code Ready Builder repository (CRB)
       command: yum-config-manager --enable crb
       when: ansible_os_family == "RedHat"  # AlmaLinux is RedHat-based
 
-    # 3. For development tools for compiling mysqlclient
+    # 3. Install development tools for compiling mysqlclient
     - name: Install development tools (GCC and other tools)
       yum:
         name: "@Development tools"
         state: present
 
-    # 4. Install necessary packages i.e. apache, mariadb, php, and other dependencies
+    # 4. Install necessary libraries for mysqlclient
+    - name: Install MySQL development library
+      yum:
+        name: mariadb-devel
+        state: present
+
+    # 5. Install Apache, MariaDB, PHP, and other required packages
     - name: Install Apache, MariaDB, PHP, and other required packages
       package:
         name:
@@ -38,18 +34,12 @@
           - mariadb-server
           - php
           - php-mysqlnd
-          - python3  # Py3 installation
-          - openssl-devel  # OpenSSL lib
-          - wget  # Wget utility
-          - git  # Git
+          - python3
+          - openssl-devel
+          - wget
+          - git
           - unzip
         state: present
-
-    # 5. Install mysqlclient with pip3, NOW that dependencies are in place unlike the last 3 times
-    - name: Install mysqlclient via pip3
-      ansible.builtin.pip:
-        name: mysqlclient
-        executable: /usr/bin/pip3
 
     # 6. Install PyMySQL using pip3
     - name: Install PyMySQL using pip3
@@ -57,34 +47,40 @@
         name: PyMySQL
         executable: /usr/bin/pip3
 
-    # 7. Start/enable Apache
+    # 7. Install mysqlclient using pip3
+    - name: Install mysqlclient via pip3
+      ansible.builtin.pip:
+        name: mysqlclient
+        executable: /usr/bin/pip3
+
+    # 8. Start and enable Apache (httpd)
     - name: Start and enable Apache (httpd)
       service:
         name: httpd
         state: started
         enabled: yes
 
-    # 8. Start and enable MariaDB (MySQL compatible)
+    # 9. Start and enable MariaDB
     - name: Start and enable MariaDB (MySQL compatible)
       service:
         name: mariadb
         state: started
         enabled: yes
 
-    # 9. Download WordPress
+    # 10. Download WordPress
     - name: Download WordPress
       get_url:
         url: https://wordpress.org/latest.tar.gz
         dest: /tmp/wordpress.tar.gz
 
-    # 10. Extract WordPress to web root
+    # 11. Extract WordPress to /var/www/html/
     - name: Extract WordPress to /var/www/html/
       unarchive:
         src: /tmp/wordpress.tar.gz
         dest: /var/www/html/
         remote_src: yes
 
-    # 11. Set WP ownership cause it's mine
+    # 12. Set ownership for WordPress files
     - name: Set ownership for WordPress files
       file:
         path: /var/www/html/wordpress
@@ -93,41 +89,41 @@
         group: apache
         mode: '0755'
 
-    # 12. MySQL database for WP
+    # 13. Create MySQL database for WordPress
     - name: Create MySQL database for WordPress
       community.mysql.mysql_db:
         name: wordpress_db
         state: present
 
-    # 13. Creates MySQL user for WP and all priv for WP DB
+    # 14. Create MySQL user for WordPress with all privileges on the database
     - name: Create MySQL user for WordPress
       community.mysql.mysql_user:
         name: wordpress_user
-        password: "securepassword"  # The MOST secure password ever created
+        password: "securepassword"
         priv: 'wordpress_db.*:ALL'
         state: present
 
-    # 14. Copy WP sample config ===> wp-config.php
+    # 15. Copy sample wp-config.php to wp-config.php
     - name: Copy sample wp-config.php to wp-config.php
       copy:
         src: /var/www/html/wordpress/wp-config-sample.php
         dest: /var/www/html/wordpress/wp-config.php
 
-    # 15. Set db name in wp-config.php
+    # 16. Set database name in wp-config.php
     - name: Set database name in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'database_name_here'
         line: "define('DB_NAME', 'wordpress_db');"
 
-    # 16. Sets db user in wp-config.php
+    # 17. Set database user in wp-config.php
     - name: Set database user in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
         regexp: 'username_here'
         line: "define('DB_USER', 'wordpress_user');"
 
-    # 17. Sets db password in wp-config.php
+    # 18. Set database password in wp-config.php
     - name: Set database password in wp-config.php
       lineinfile:
         path: /var/www/html/wordpress/wp-config.php
